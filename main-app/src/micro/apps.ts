@@ -18,4 +18,10 @@ export const microApps: MicroAppItem[] = [
         container: '#micro-container-vue',
         activeRule: '/vue'
     },
+    {
+        name: 'app-react',
+        entry: '//localhost:8082',
+        container: '#micro-container-react',
+        activeRule: '/react',
+    },
 ]

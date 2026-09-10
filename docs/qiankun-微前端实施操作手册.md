@@ -515,7 +515,7 @@ microInit()
 ## Phase 2 · 接入 app-react（Webpack-UMD 官方形态）
 
 > 目标：主应用可在 Vue / React 两个子应用间切换；同时看懂「UMD 打包配置 ↔ qiankun 加载协议」的关系。
-> app-react 当前是**普通 Webpack 工程**（8082 可独立跑），本节只改 3 类文件：`webpack.config.js`、`src/index.js`、新增路由。
+> app-react 当前是**普通 Webpack 工程**（8082 可独立跑），但有两个按老步骤做必踩的坑：① `App.jsx` 首页没覆盖时**只有标题、没有跳转入口**（自测第一步就卡住）；② react-router 与主应用 vue-router 共用 `history.state` 会互相覆盖，导致**列表/详情页里点导航切不走子应用**（Console 报 `SecurityError`）。本节需整体覆盖 `webpack.config.js`、`src/index.js`、`src/App.jsx`，并新建 `src/views/List.jsx`、`src/views/Detail.jsx`。
 
 ### 2.1 改造 app-react（子应用侧）
 
@@ -531,12 +531,14 @@ module.exports = {
         path: path.resolve(__dirname, 'dist'),
         filename: '[name].bundle.js',
         clean: true,
-        // ===== qiankun UMD 协议四件套（本 Phase 新增）=====
+        // ===== qiankun UMD 协议（本 Phase 新增）=====
+        // 所有静态资源都从本应用源(8082)的根路径取，避免 URL 处于 /react/xxx 时按相对基准跑到主应用(8080)找资源
+        publicPath: '/',
         library: 'appReact',      // 全局变量名，qiankun 从 window.appReact 上拿生命周期
         libraryTarget: 'umd',     // 打包成 UMD：能同时兼容 全局变量/CommonJS/AMD
         globalObject: 'window',   // 关键：让 UMD 代码在沙箱里取 window 而不是 globalThis
         chunkLoadingGlobal: 'webpackJsonp_app_react', // webpack5 版 jsonpFunction，多应用防冲突
-        // ==============================================
+        // ============================================
     },
     module: {
         rules: [
@@ -565,19 +567,42 @@ module.exports = {
 };
 ```
 
-> **停一下，理解这 4 行**：webpack 打包入口 `src/index.js` 时，若该文件 `export` 了 `bootstrap/mount/unmount`，UMD 会把它们挂到 `window.appReact`。qiankun 加载这个 UMD 后，从 `window['appReact']` 读生命周期调用——这就是"官方标准接入协议"的全貌。
+> **停一下，理解 UMD 关键行**：webpack 打包入口 `src/index.js` 时，若该文件 `export` 了 `bootstrap/mount/unmount`，UMD 会把它们挂到 `window.appReact`；qiankun 加载这个 UMD 后从 `window['appReact']` 读生命周期调用——这就是"官方标准接入协议"的全貌。
+>
+> `publicPath: '/'` 让资源固定从子应用自己源（8082）的根路径加载，避免页面 URL 处于 `/react/list` 这类深路径时按相对路径到主应用（8080）找资源而 404。
 
 #### 文件 2：`app-react/src/index.js`（整体覆盖：生命周期 + 路由）
 
 ```js
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import App from './App';
 import List from './views/List';
 import Detail from './views/Detail';
 
 let root = null;
 let container = null;
+
+// 微前端下，主应用(8080)用 vue-router，它把 {back,current,forward,position}
+// 等字段存在浏览器 history.state 里，导航时依赖 current 拼接 URL。
+// React Router 内部导航（点 Link）会用 pushState 把 history.state 整体替换成
+// {usr,key}，丢掉 vue-router 写的 current，导致主应用 vue-router 之后再
+// push/replace 时拼出 'http://localhost:8080undefined/' 这类非法 URL 而报
+// SecurityError —— 现象就是：在 React 列表/详情页里点主应用导航切不走子应用。
+// 这里在每次 React 导航落定后，把真实路径补回 state.current（usr/key 原样保留），
+// 既不影响 React Router 自身的前进后退，也不破坏主应用的 state 结构。
+function MicroHistoryGuard() {
+  const location = useLocation();
+  useEffect(() => {
+    const s = window.history.state;
+    if (!s || typeof s.current !== 'string') {
+      const realPath = window.location.pathname + window.location.search;
+      window.history.replaceState({ ...(s || {}), current: realPath }, '');
+    }
+  }, [location]);
+  return null;
+}
 
 function render(props = {}) {
   // props.container 由 qiankun 的 mount 传入（主应用容器）；独立运行时为空
@@ -587,6 +612,7 @@ function render(props = {}) {
     // basename='/react'：与主应用 activeRule 前缀一致（Phase 3 详解）。
     // 独立运行时也用它：独立访问走 http://localhost:8082/react/...（dev server 会回退到 index.html）
     <BrowserRouter basename="/react">
+      <MicroHistoryGuard />
       <Routes>
         <Route path="/" element={<App />} />
         <Route path="/list" element={<List />} />
@@ -621,9 +647,27 @@ if (!window.__POWERED_BY_QIANKUN__) {
 }
 ```
 
-> `App.jsx` 现内容（`<h1>Hello from app-react</h1>`）会成为路由 `/` 的页面，保留即可；下面补充导航与二级页。
+> `App.jsx` 原本只是静态 `<h1>`，若照原样保留，React 首页就没有任何跳转入口——2.1 自测里"点链接跳列表页"会直接卡住（本 Phase 的第一个坑）。所以紧接着**文件 3 要整体覆盖 App.jsx** 补上入口；文件 4/5 才是列表/详情页。
 
-#### 文件 3：新建 `app-react/src/views/List.jsx`
+#### 文件 3：`app-react/src/App.jsx`（整体覆盖：首页补跳转入口）
+
+```jsx
+import { Link } from 'react-router-dom';
+
+export default function App() {
+    return (
+        <div>
+            <h1>Hello from app-react (Webpack 5)</h1>
+            <p>React 子应用业务首页</p>
+            <Link to="/list">去列表页</Link>
+        </div>
+    );
+}
+```
+
+> `Link` 会被 `BrowserRouter`（basename=`/react`）解析成绝对路径：独立运行点它跳到 `/react/list`；被基座托管时点击后 URL 变为 `8080/react/list`，且是 SPA 内切换、不会整页刷新。
+
+#### 文件 4：新建 `app-react/src/views/List.jsx`
 
 ```jsx
 import { Link } from 'react-router-dom';
@@ -649,7 +693,7 @@ export default function List() {
 }
 ```
 
-#### 文件 4：新建 `app-react/src/views/Detail.jsx`
+#### 文件 5：新建 `app-react/src/views/Detail.jsx`
 
 ```jsx
 import { Link, useParams } from 'react-router-dom';
@@ -666,7 +710,13 @@ export default function Detail() {
 }
 ```
 
-**先自测 app-react**：`npm run dev` 后访问 **http://localhost:8082/react** → 出现首页；点链接跳 `/react/list`、`/react/detail/1`，F5 刷新不 404。通过后再改主应用。
+**先自测 app-react（独立模式）**：`npm run dev` 后访问 **http://localhost:8082/react** → 出现首页，点「去列表页」→ `/react/list`，点列表项 → `/react/detail/1`，各页 F5 刷新不 404。
+
+**再提前验证"基座托管"下的关键路径（验证文件 2 的 `MicroHistoryGuard`）**：8080 主应用切到 React → 首页点「去列表页」进 `/react/list`（再进 `/react/detail/1` 也行）→ 点主应用顶部导航「Vue 子应用」/「首页」，必须能正常切走，且 Console **不得出现** `SecurityError`/`'http://localhost:8080undefined/'`。
+
+> ⚠️ 改动过 `index.js`（guard）后，务必**整页刷新一次 8080 主应用**再测：qiankun 在页面存活期间会缓存已加载的子应用 bundle，仅靠 webpack HMR 不会替换它。
+
+通过后再进入 2.2 把 app-react 追加进主应用注册表。
 
 ### 2.2 改造 main-app（追加注册 + 容器）
 
@@ -698,9 +748,10 @@ export const microApps: MicroAppItem[] = [
 三个终端全部在跑（8080/8081/8082）。然后：
 
 1. 8080 打开主应用，依次点「Vue 子应用」「React 子应用」，两边都能渲染并**互不干扰**；
-2. React 子应用内点「列表」跳二级路由，URL 保持 `/react/list`；
-3. 打开 DevTools → Network 面板，切到 React 子应用，应能看到主应用对 `//localhost:8082/` 发起的 HTML 请求、以及后续的 `main.bundle.js`、`index.html` 资源请求（观察 qiankun 的 HTML Entry 加载过程）；
-4. 两个子应用独立访问（8081/vue、8082/react）仍正常。
+2. React 首页点「去列表页」→ 再点列表项 → 详情，二级路由可跳转，URL 保持 `/react/list`、`/react/detail/1`；
+3. **核心回归**：停在 React 列表/详情页时，点顶部导航「Vue 子应用」「首页」应能正常切走，Console **不得出现** `SecurityError`/`'http://localhost:8080undefined/'`（出现则说明 `MicroHistoryGuard` 没生效，多半是没整页刷新主应用）；
+4. 打开 DevTools → Network 面板，切到 React 子应用，应能看到主应用对 `//localhost:8082/` 发起的 HTML 请求、以及后续的 `main.bundle.js` 资源请求（观察 qiankun 的 HTML Entry 加载过程）；
+5. 两个子应用独立访问（8081/vue、8082/react）仍正常。
 
 ### 2.4 常见报错排查表
 
@@ -710,12 +761,15 @@ export const microApps: MicroAppItem[] = [
 | 报 `window is not defined` 或 `global is not defined` | 漏了 `output.globalObject: 'window'`（UMD 在非浏览器上下文取全局变量失败） |
 | 页面一片空白且 Console 无错，但子应用 HTML 已加载 | 多为 React 找不到 `#root`：`props.container.querySelector('#root')` 取到 null → 检查容器 id 与 `index.html` 是否一致 |
 | 两个子应用来回切，其中 React 偶发重复渲染 | `unmount` 里漏了 `root.unmount()` + `root = null`，排查入口文件 |
-| 独立访问 8082 正常，托管后子应用内部资源 404 | dev server 下一般不会出现；若出现，给 `output` 加 `publicPath: '//localhost:8082/'` 再看 |
+| 独立访问 8082 正常，托管后子应用内部资源 404 | dev server 下一般不出现（2.1 已配 `publicPath: '/'`）；若日后给 React 引入懒加载/分包后仍出现，把 `publicPath` 换成完整子应用源 `'//localhost:8082/'` |
+| React 首页只有一行标题，找不到「去列表页」等入口 | `App.jsx` 没被覆盖成带路由 `Link` 的首页（文件 2 只配了路由，首页仍需自己提供入口） | 按 2.1「文件 3」整体覆盖 App.jsx |
+| 在 React 列表/详情页点主应用导航切不走，Console 报 `SecurityError ... 'http://localhost:8080undefined/'` | React Router 内部 `pushState` 会整体替换 `history.state`，丢掉 vue-router 写在其上的 `current` 等字段，vue-router 拼 URL 出错 | `index.js` 已内置 `MicroHistoryGuard`，每次 React 导航后用 `replaceState` 回填 `state.current`；改完**整页刷新主应用**再验证 |
 
 ### ✅ Phase 2 验收
 
 - [ ] 主应用内 Vue / React 双应用来回切换互不干扰；
 - [ ] React 子应用二级路由可跳转，URL 形如 `/react/list`；
+- [ ] **停在 React 列表/详情页时仍可通过主应用导航切走，且无 `SecurityError`**；
 - [ ] Network 能看到 `//localhost:8082` 的 HTML/JS/CSS 请求；
 - [ ] 两个子应用独立访问正常；
 - [ ] git 提交：`git add -A && git commit -m "feat: phase 2 - 接入 app-react（UMD）双应用可切换"`
@@ -1190,6 +1244,8 @@ if (!window.__POWERED_BY_QIANKUN__) {
 }
 ```
 
+> ⚠️ 无论这里以何种方式接线 `index.js`，请**保留 Phase 2 加入的 `MicroHistoryGuard`**（组件及其 `<MicroHistoryGuard />` 用法），否则 Phase 2 刚解决的"列表/详情页切不走子应用"（SecurityError）会回归。
+
 `app-react/src/App.jsx` 展示用户与退出：
 
 ```jsx
@@ -1532,6 +1588,7 @@ http {
 | `window is not defined` | 缺 `output.globalObject: 'window'` | 2.4 |
 | React 页面白屏无报错 | `#root` 选择器取空 / container id 不一致 | 2.4 |
 | 子应用内部路由 F5 404 | 缺 router base/basename（dev）；缺 try_files（部署） | 3.1 / 7.3 |
+| 从 React 列表/详情切走报 `SecurityError ... 'http://localhost:8080undefined/'` | React Router 覆盖 history.state，vue-router 拼 URL 出错 | 2.1（MicroHistoryGuard） |
 | 子应用样式污染基座 | 未开 `experimentalStyleIsolation` | 4.2 |
 | 全局变量泄漏到主应用 | 误设 `sandbox:false` | 4.1 |
 | globalState 不更新 | mount 里没传 fireImmediately=true；或重复订阅未注销 | 5.3 / 5.4 |
