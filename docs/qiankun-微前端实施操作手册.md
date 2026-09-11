@@ -1,7 +1,7 @@
 # Qiankun 微前端学习项目 · 实施操作手册
 
 > 本手册是《qiankun-微前端学习项目设计文档.md》的**配套执行手册**：把设计文档里"做什么"细化为"打开哪个文件、粘贴什么代码、执行哪条命令、看到什么算过"。
-> 环境：Windows + PowerShell + Vite 8 / Vue 3.5 / React 19 / Webpack 5。
+> 环境（2026-09-11 按各 `package.json` 实测）：Windows + PowerShell + Node ≥ 20.19 / Vite 8.2.2 / Vue 3.5.41 / React 19.2.8 / react-router-dom 7.18.3 / Webpack 5.110.3（webpack-dev-server 6）/ TypeScript 6.0.2 / qiankun 2.10.16 / vite-plugin-qiankun 1.0.15。
 
 ## 0. 怎么用这本手册
 
@@ -12,19 +12,30 @@
 | 设计文档 | 讲清"为什么这么设计"（架构、机制、取舍） | 动手前/卡住时补充心智模型 |
 | 本操作手册 | 告诉你"每一步具体怎么操作" | 照着做、逐条打勾 |
 
-### 0.2 项目当前进度基线（2026-09 实测）
+### 0.2 项目当前进度（2026-09-11 实测）
 
-动手前先核对，**确认你站在哪一步**：
+⚠️ **先看这张表再动手**：手册是"从头做到尾"的写法，但项目已经推进到 Phase 4 —— **不要照着已完成的章节整体覆盖文件**，那会冲掉你自己的注释与实验代码。已完成章节的正确用法是"对照复核"。
 
-| 项目 | 现状 | 结论 |
+| Phase | 状态 | 判断依据 |
 | --- | --- | --- |
-| 根目录 | 无 `git init`、无根 `.gitignore`、无 `deploy/` | Phase 0 未收尾 |
-| `main-app` | Vue3+Vite 脚手架；端口 8080+cors 已配；**无 vue-router / qiankun / router / micro 目录** | Phase 1 全部待做 |
-| `app-vue` | Vue3+Vite 脚手架；端口 8081+cors 已配；**无 vue-router / vite-plugin-qiankun** | Phase 1 全部待做 |
-| `app-react` | 手动 Webpack5 工程，8082 可跑通；**无 react-router-dom、无 UMD、无生命周期** | Phase 2 待做 |
-| 文档 | `docs/` 下仅设计文档 | — |
+| Phase 0 · 收尾 | ✅ 完成 | 根目录已有 `.git`（分支 main，有 origin）、`.gitignore`；三端依赖已装齐 |
+| Phase 1 · 基座挂 app-vue | ✅ 完成 | `main-app/src/{micro,router,views}` 与 app-vue 的 `router/views/main.ts/qiankun.d.ts` 均已在位，8080 能切到 `/vue` |
+| Phase 2 · 接入 app-react | ✅ 完成 | webpack UMD 四件套、`src/views/{List,Detail}.jsx`、`MicroHistoryGuard` 均已在位 |
+| Phase 3 · 路由联动 | ✅ 完成 | 主应用菜单前缀高亮已实现（`App.vue` 的 `navs` + `.nav-active`）；3.3 实验可随时重做 |
+| Phase 4 · 沙箱/样式实验 | 🚧 进行中 | 4.1 JS 沙箱、4.2 CSS 隔离已做；**4.3 副作用清理、4.4 `docs/规范.md` 未做** |
+| Phase 5 · 应用间通信 | ⬜ 未开始 | 无 `main-app/src/micro/actions.ts`，全局状态未接 |
+| Phase 6 · 工程化 | ⬜ 未开始 | 无 `main-app/.env`、无 loading/容错、无根 README |
+| Phase 7 · nginx 部署 | ⬜ 未开始 | 无 `deploy/`、无各应用 README |
 
-一句话：**三端"能独立跑"≈ 完成，接下来从「Phase 0 收尾」→「Phase 1」开始**。
+现状明细（避免误判"还缺什么"）：
+
+| 项 | 现状 |
+| --- | --- |
+| 根目录 | 有 `.git`、`.gitignore`；**无 `README.md`、无 `deploy/`** |
+| `main-app` | 8080 + cors；qiankun 2.10.16 + vue-router 4.6.4；`src/micro/{apps.ts,index.ts}`、`src/router/index.ts`、`src/views/{HomeView,MicroSlot}.vue` 已在位；**无 `.env`** |
+| `app-vue` | 8081 + cors + `vite-plugin-qiankun@1.0.15`（`useDevMode: true`）；`src/router/index.ts`、`src/views/{HomeView,ListView,DetailView}.vue`、`src/qiankun.d.ts` 已在位；**未安装 `qiankun` 本体**（Phase 5 依赖这点，见 0.5 勘误） |
+| `app-react` | 8082；webpack UMD 配置、`src/views/{List,Detail}.jsx`、`MicroHistoryGuard` 已在位；**无 README**、`devServer.open: true`（每次 `npm run dev` 会自己弹浏览器） |
+| `docs/` | 设计文档 + 本手册 + 第 5 章步骤文档；**无 `规范.md`** |
 
 ### 0.3 通用约定
 
@@ -32,18 +43,43 @@
 - 需要三个终端：分别跑 `main-app`(8080)、`app-vue`(8081)、`app-react`(8082) 的 `npm run dev`，**本文所有验证都假设三个 dev server 同时在跑**；
 - 每个 Phase 完成后按第 0.4 节打一次 git 提交，方便出错回退；
 - 代码块标注文件路径的，表示「用该内容整体覆盖该文件」；只给片段的是「在现有文件里插入/替换」；
+- ⚠️ 但**已完成章节的代码块只作"设计态参考"**，别整体覆盖粘贴：仓库里的实际文件带着你自己的注释，还有实验开关（如 `app-react/src/App.jsx` 里被注释掉的 `window.__LEAK_`）。覆盖 = 冲掉实验现场；
 - Windows PowerShell 里 `npm i -D @babel/core` 这类 `@` 开头的包名要加**双引号**（`npm i -D "@babel/core"`）。
 
 ### 0.4 版本决策（对应设计文档第 8 章开放决策点）
 
 | # | 决策 | 本手册采用的默认 |
 | --- | --- | --- |
-| 1 | app-vue 接入插件 | 用 `vite-plugin-qiankun`（tengmaoqing 原版）。**实施第一步执行 2.1 节锁定版本**，若发现该包长期停更，换活跃 fork 后仅需改 `app-vue/vite.config.ts` 与 `src/main.ts` 两处（API 兼容）。 |
+| 1 | app-vue 接入插件 | 用 `vite-plugin-qiankun`（tengmaoqing 原版）。**实施第一步执行 1.1 节锁定版本**（已锁定 `1.0.15`），若发现该包长期停更，换活跃 fork 后仅需改 `app-vue/vite.config.ts` 与 `src/main.ts` 两处（API 兼容）。 |
 | 2 | app-react 手动 Webpack | 已采用（现状就是手动工程） |
 | 3 | TS 范围 | 两 Vue 应用用 TS（模板默认）；app-react 用 JSX |
 | 4 | 通信场景 | 登录用户 + 主题色（Phase 5） |
 | 5 | git 提交 | 每 Phase 一提交 |
 | 6 | 任务卡 | 本手册即任务卡 |
+
+### 0.5 勘误表（已逐条核对源码 / 实测，遇到"和手册对不上"先查这里）
+
+手册早期版本有几处说法与 qiankun 2.10.16、`vite-plugin-qiankun` 1.0.15 的真实实现不符（还有几处代码片段自带类型错误，会让 `npm run build` 直接失败）。正文与仓库源码均已改，这里汇总备查。
+
+> 截至 2026-09-11，`main-app` 与 `app-vue` 执行 `npx vue-tsc -b` 都是 **0 错误**；`app-react` 是纯 JS，无类型检查。
+
+| 章节 | 原来的问题 | 正确结论 |
+| --- | --- | --- |
+| 1.2 文件 5 | `main.ts` 片段里有未使用的 `import { createRouter, type Router } from 'vue-router'` | 两个 Vue 工程的 `tsconfig.app.json` 都开了 `noUnusedLocals` / `noUnusedParameters`，**这行会让 `npm run build`（`vue-tsc -b`）直接失败**，删掉（仓库已修正） |
+| 1.2 文件 5 / 5.3 | `renderWithQiankun({ bootstrap, mount, unmount })` 少给一个 `update` | 插件的 `QiankunLifeCycle` 类型**四个生命周期全是必填**，缺 `update` 报 `TS2345`；补一个空的 `update() {}` 即可（仓库已修正） |
+| 1.2 文件 1 | `import qiankun from 'vite-plugin-qiankun'` 报 `TS2349: This expression is not callable` | `app-vue/tsconfig.node.json` 用的是 `"module": "nodenext"`，而该包 `types` 指向 ESM 风格的 `.d.ts`、`main` 却是 CJS 产物，nodenext 会把默认导入解析成命名空间。把它改回 `"module": "ESNext"` + `"moduleResolution": "bundler"`（原注释本来就写着 Bundler mode）—— 仓库已修正 |
+| 1.3 文件 2 / 6.1 | 生命周期钩子写成 `(app) => console.log(...)` | 钩子类型是 `(app, global) => Promise<any>`，同步回调返回 `void` 报 `TS2322`；写成 `async (app) => console.log(...)`（仓库已修正） |
+| 1.2 文件 4 | `qiankun.d.ts` 里的变量名 | 必须是**双下划线结尾**：`__POWERED_BY_QIANKUN__`、`__INJECTED_PUBLIC_PATH_BY_QIANKUN__`。仓库原文件写成了 `__POWERED_BY_QIANKUN_`、`__INJECTED_PUBLTC_PATH_BY_QIANKUN_`（`PUBLTC` 是拼写错误），会导致类型对不上（仓库已修正） |
+| 3.3 | "保存（qiankun 会热重载）" | `apps.ts` / `micro/index.ts` 不在 Vite 的 HMR 接受链上，保存后是**整页刷新**；刷新即重新 `registerMicroApps` 并按新 `activeRule` 判定，结论不变但要知道它是刷新 |
+| 4.1 实验 1-A | "代码已就位：`App.jsx` 第 3 行 `window.__LEAK_ = 'react-app'`" | 仓库里这行是**注释状态**，实验前要先取消注释 |
+| 4.1 实验 2 | "对 `app-vue` 而言开/关沙箱结果完全一样" | 现象成立，但要补一层理解：`window.proxy` 是 `vite-plugin-qiankun` 的**命脉**（`helper.js` 取 `window.proxy \|\| window`，注入的脚本直接调 `window.proxy.vitemount(...)`）。关沙箱时它会退化成真 window，插件才"侥幸"还能跑 |
+| 4.2 实验 3 | "容器内有且仅有一个根节点，前缀才加得上去" | 源码里**没有**这个限制。前缀是加在 **qiankun 自建的那个 wrapper div**（`<div id="__qiankun_microapp_wrapper_for_app_vue__" data-name="app-vue" …>`，它才是容器的唯一子节点）上的。真实边界是：它只改写**挂载那一刻 wrapper 内已存在的 `<style>`**（以及之后经 qiankun 补丁插入容器内的 `<style>`）；`<link>` 直接 warn 不支持；Vite 注入到 `document.head` 的样式感知不到 |
+| 4.3 实验 1 | 用一个空 `setInterval(() => {}, 1000)` 观察内存 | 泄漏量太小，Performance 面板看不出来；要挂一个持续增长的大对象（正文已改） |
+| 5.3 step 1 | `import type { MicroAppStateActions } from 'qiankun'` | `app-vue` **没装 `qiankun`**，这样写是 `TS2307`；正文给的是"不装依赖"的手写类型版 |
+| 6.1 step 1 | "若 `src/` 下没有 `vite-env.d.ts`，新建一个" | 两个 tsconfig 已经用 `"types": ["vite/client"]` 引入了 Vite 类型，**不需要**该文件；想让自定义 `VITE_*` 有类型，要显式扩展 `ImportMetaEnv` 接口 |
+| 6.3 | loading 骨架用 `setTimeout` 模拟；并说"真实接法是 `start({ loader })` 驱动" | 前者是假状态（跟 qiankun 无关）；后者也错 —— `loader` 是**每个子应用**的配置项（`registerMicroApps([{ …, loader }])`），`start()` 根本不接受它 |
+| 附录 A | "子应用样式污染基座 = 未开 `experimentalStyleIsolation`" | 归因错了：根因是子应用写了**非 scoped 的全局样式**；该配置只能兜底静态 `<style>`，救不了 Vite 运行时注入 |
+
 
 > ⚠️ **已记录的偏差**：设计文档原规划 app-react 用 React 18，当前工程实际装了 **React 19.2**（`^19.2.8`）。React 19 的 `createRoot`/`root.unmount()` API 与 18 一致，不影响 UMD 接入，本手册**按 React 19 编写**，无需降级。
 
@@ -136,6 +172,8 @@ npm i react-router-dom
 
 ## Phase 1 · 最小接入：主应用挂载 app-vue（核心）
 
+> **状态：✅ 已完成**（仓库里相关文件均已在位）。本节现在当"**复核清单**"用：对照着看自己的实现是否与设计一致，**不要整体覆盖粘贴**。
+>
 > 目标：8080 打开主应用 → 点「Vue 子应用」→ 容器内出现 app-vue 首页，控制台能看到 `bootstrap → mount` 时序日志。
 > 全程 4 步：① 锁插件版本 → ② 改 app-vue → ③ 改 main-app → ④ 双端启动验证。
 
@@ -264,11 +302,14 @@ declare global {
 }
 ```
 
+> ⚠️ **两个变量名都是"双下划线开头 + 双下划线结尾"**，手写极容易少一个下划线或拼错（仓库里现存的 `app-vue/src/qiankun.d.ts` 就写成了 `__POWERED_BY_QIANKUN_` 和 `__INJECTED_PUBLTC_PATH_BY_QIANKUN_`）。声明名与实际使用名不一致时，TS 会认为你在访问一个不存在的属性 —— 现在没报错只是因为 `main.ts` 用的是插件 helper 里的 `qiankunWindow`（自带类型），这个 `.d.ts` 实际处于"写了但没生效"的状态。**建议按上面正确的名字改掉**。
+
 #### 文件 5：`app-vue/src/main.ts`（整体覆盖，核心改造）
 
 ```ts
 import { createApp, type App as VueApp } from 'vue'
-import { createRouter, type Router } from 'vue-router'
+// ⚠️ 不要 import vue-router 的 createRouter / Router —— 本文件用不到它们，
+// 而 tsconfig.app.json 开了 noUnusedLocals，未使用的 import 会让 `npm run build`（vue-tsc -b）直接失败
 import { qiankunWindow, renderWithQiankun } from 'vite-plugin-qiankun/dist/helper'
 import App from './App.vue'
 import router from './router'
@@ -286,7 +327,8 @@ function render(props: { container?: HTMLElement | null } = {}) {
   app.mount(mountEl)
 }
 
-// 被 qiankun 托管时，插件把下面三个生命周期导出给主应用调用
+// 被 qiankun 托管时，插件把这些生命周期导出给主应用调用
+// ⚠️ update 不能省：插件的 QiankunLifeCycle 类型要求四个生命周期齐全，缺了 vue-tsc 会报 TS2345
 renderWithQiankun({
   bootstrap() {
     console.log('[app-vue] bootstrap')
@@ -294,6 +336,9 @@ renderWithQiankun({
   mount(props) {
     console.log('[app-vue] mount')
     render(props as { container?: HTMLElement | null })
+  },
+  update() {
+    // 主应用调 update(props) 时触发；本项目不做增量更新，留空即可
   },
   unmount() {
     console.log('[app-vue] unmount')
@@ -365,10 +410,11 @@ import { microApps } from './apps'
 
 export function microInit() {
   registerMicroApps(microApps, {
-    beforeLoad: [(app) => console.log('[qiankun] beforeLoad:', app.name)],
-    beforeMount: [(app) => console.log('[qiankun] beforeMount:', app.name)],
-    afterMount: [(app) => console.log('[qiankun] afterMount:', app.name)],
-    afterUnmount: [(app) => console.log('[qiankun] afterUnmount:', app.name)],
+    // 钩子类型是 (app, global) => Promise<any>，必须返回 Promise，所以都要 async
+    beforeLoad: [async (app) => console.log('[qiankun] beforeLoad:', app.name)],
+    beforeMount: [async (app) => console.log('[qiankun] beforeMount:', app.name)],
+    afterMount: [async (app) => console.log('[qiankun] afterMount:', app.name)],
+    afterUnmount: [async (app) => console.log('[qiankun] afterUnmount:', app.name)],
   })
 
   start({
@@ -389,6 +435,7 @@ const router = createRouter({
     { path: '/home', name: 'home', component: () => import('../views/HomeView.vue') },
     // /vue、/react 前缀由 qiankun 接管：
     // 主路由只负责"占位不 404"，真实内容渲染在布局中常驻的容器 div 里
+    // 注意后面的 (.*)* 不能省：少了尾巴上的 * 就匹配不到不带斜杠的 /vue 本身
     { path: '/vue/:pathMatch(.*)*', component: () => import('../views/MicroSlot.vue') },
     { path: '/react/:pathMatch(.*)*', component: () => import('../views/MicroSlot.vue') },
   ],
@@ -514,6 +561,8 @@ microInit()
 
 ## Phase 2 · 接入 app-react（Webpack-UMD 官方形态）
 
+> **状态：✅ 已完成**（UMD 四件套、`views/{List,Detail}.jsx`、`MicroHistoryGuard` 均已在位）。同样按"复核清单"使用。
+>
 > 目标：主应用可在 Vue / React 两个子应用间切换；同时看懂「UMD 打包配置 ↔ qiankun 加载协议」的关系。
 > app-react 当前是**普通 Webpack 工程**（8082 可独立跑），但有两个按老步骤做必踩的坑：① `App.jsx` 首页没覆盖时**只有标题、没有跳转入口**（自测第一步就卡住）；② react-router 与主应用 vue-router 共用 `history.state` 会互相覆盖，导致**列表/详情页里点导航切不走子应用**（Console 报 `SecurityError`）。本节需整体覆盖 `webpack.config.js`、`src/index.js`、`src/App.jsx`，并新建 `src/views/List.jsx`、`src/views/Detail.jsx`。
 
@@ -778,6 +827,8 @@ export const microApps: MicroAppItem[] = [
 
 ## Phase 3 · 路由联动、刷新与激活规则
 
+> **状态：✅ 已完成**（主应用 `App.vue` 已按前缀算激活态；3.3 实验可随时重做）。
+>
 > 目标：把「URL 由谁控制」这件事彻底搞懂，并让主应用菜单高亮与子应用联动。
 > 前提：Phase 1/2 的二级路由页面已在 app-vue、app-react 里写好，本节主要是**实验 + 微调**。
 
@@ -848,7 +899,9 @@ const navs = [
 
 ### 3.3 实验：改 activeRule 观察不匹配行为
 
-临时把 `apps.ts` 里 app-vue 的 `activeRule` 改成 `'/vue-child'`，保存（qiankun 会热重载）：
+临时把 `apps.ts` 里 app-vue 的 `activeRule` 改成 `'/vue-child'`，保存。
+
+> 注意这里**不是 HMR 热更新**：`apps.ts` / `micro/index.ts` 不在 Vite 的 HMR 接受链上，保存后浏览器会**整页刷新**；刷新即重新执行 `registerMicroApps`，并按新的 `activeRule` 重新判定谁该激活。所以结论不变，但你要知道"是刷新生效、不是热重载"。
 
 - 访问 `/vue` → **不会**加载 app-vue（规则不匹配），主页面只剩占位空壳；
 - 访问 `/vue-child` → app-vue 加载。
@@ -871,66 +924,239 @@ qiankun 的 `registerMicroApps` 生命周期钩子已在 Phase 1 埋好（`micro
 
 ## Phase 4 · 沙箱与样式隔离实验
 
+> **状态：🚧 进行中** —— 4.1（JS 沙箱）、4.2（CSS 隔离）已做完；**4.3（副作用清理）、4.4（`docs/规范.md`）待做**。
+>
 > 目标：亲手制造污染 → 亲眼看到沙箱/隔离生效 → 沉淀样式规范。
 > 全程不改业务代码结构，只做**实验 + 记录**。
 
+**实验地图（先扫一眼，避免四个实验记串）**
+
+| 顺序 | 实验 | 用什么做 | 预期结果 |
+| --- | --- | --- | --- |
+| 4.1 | JS 沙箱：全局变量会不会泄漏 | `app-react` / `app-vue` **对照** | react 不泄漏、vue 泄漏 |
+| 4.2 | CSS 隔离：全局样式会不会串 | `app-vue` 写非 scoped 样式 | 会串 → 加 `scoped` 后只命中自己 |
+| 4.3 | 副作用清理：定时器不清理 | `app-vue` 的 `mount` | 反复切换后内存只涨不降 |
+| 4.4 | 沉淀《样式规范》 | — | `docs/规范.md` 落地 |
+
 ### 4.1 JS 沙箱实验
 
-**实验 1：全局变量是否泄漏**
+**先记住这两点，否则结论一定记错：**
 
-1. 编辑 `app-vue/src/views/HomeView.vue`，在 `script setup` 里加一行：`window.__LEAK_ = 'vue-app'`；
-2. 主应用切到「Vue 子应用」再切回「首页」；
-3. 在主应用 Console 输入 `window.__LEAK_` → 应为 `undefined`（Proxy 沙箱把子应用的写操作留在了自己的上下文里，退出即隔离）。
+| 子应用 | 构建形态 | 它的 JS 由谁执行 | JS 沙箱 |
+| --- | --- | --- | --- |
+| `app-react` | Webpack + UMD | **qiankun**（在代理 window 里执行） | ✅ 生效 |
+| `app-vue` | Vite + ESM | **浏览器**原生加载 `<script type="module">` | ❌ 不生效，代码跑在真实 window 上 |
 
-**实验 2：开关沙箱对比（体会差异）**
+- 原因：qiankun 执行子应用脚本的方式是把它包进 `with(proxyWindow){ ... }` 里跑，而原生 ESM 的 `import` 语句在函数体里是**语法错误**、塞不进去。所以 `vite-plugin-qiankun` 把 `<script type="module" src=...>` 改写成一句 inline 的 `import('...')`（见 `app-vue/node_modules/vite-plugin-qiankun/es/index.js` 的 `module2DynamicImport`）：**动态 import 交给浏览器原生加载**，模块代码因而跑在真实全局作用域。这是 ESM 形态的既有限制、不是配置错误，也正是本项目特意做两种形态要对比出的结论。
+- 主应用 Console **永远读真 window**；想偷看沙箱内部要用 `window.proxy.xxx`（`import-html-entry` 把当前沙箱 proxy 挂在了真 window 的 `window.proxy` 上）。
+- 但 `window.proxy` **不只是观察窗口，它是 `vite-plugin-qiankun` 的命脉**：helper 里 `qiankunWindow = window.proxy || window`，注入的 inline 脚本写 `window.proxy.vitebootstrap = resolve`，模块加载完再靠 `window.proxy.vitemount(...)` 把生命周期接起来。app-vue 能跑起来本身就依赖 proxy 存在 —— 这也是实验 2 那个"关沙箱似乎也没事"的真相（见实验 2 末尾）。
 
-1. 修改 `main-app/src/micro/index.ts`，把 `start({ prefetch: 'all' })` 临时改成 `start({ prefetch: 'all', sandbox: false })`；
-2. 重复实验 1 → 此时 `window.__LEAK_` 应该是 `'vue-app'`（泄漏了）；
-3. **改回默认沙箱**，记录差异结论。
+**实验 1：全局变量会不会泄漏**
 
-**实验 3：观察沙箱产物**
+A. `app-react`（预期：**不泄漏**）
 
-在主应用切到 app-vue 后，Console 里检查 `window.__POWERED_BY_QIANKUN__`（应为 `true`）——这个标记就是"是否被 qiankun 托管"的运行时判断来源。
+1. **先取消注释**：打开 `app-react/src/App.jsx`，把第 3 行的 `// window.__LEAK_ = 'react-app';` 去掉注释（写在模块顶层，加载即执行一次）。
+   > ⚠️ 仓库里这行默认是注释状态，漏了这步实验必然读到 `undefined`，会让你误判成"沙箱隔离成功"。
+2. 主应用切到「React 子应用」，再切回「首页」；
+3. 主应用 Console 依次输入：
+
+   | 输入 | 预期 | 含义 |
+   | --- | --- | --- |
+   | `window.__LEAK_` | `undefined` | 真 window 没被污染 |
+   | `window.proxy.__LEAK_` | `'react-app'` | 值被留在了沙箱里 |
+
+   → 结论：**写隔离生效**。
+
+B. `app-vue`（预期：**泄漏**，与 A 形成对照）
+
+1. 打开 `app-vue/src/views/HomeView.vue`，把第 2 行 `// window.__LEAK_ = 'vue-app';` 的注释去掉；
+2. 主应用切到「Vue 子应用」，再切回「首页」；
+3. 主应用 Console 输入 `window.__LEAK_` → `'vue-app'`。
+
+   → 结论：**ESM 绕过沙箱，直接写到了真 window 上**。
+
+**实验 2：把沙箱关掉，再跑一遍 app-react**
+
+1. 打开 `main-app/src/micro/index.ts`，把 `start({ ... })` 里那行 `// sandbox: false` 的注释去掉（即改成 `sandbox: false,`）；
+2. 重复实验 1-A → `window.__LEAK_` 变成 `'react-app'`（此时真 window 与 `window.proxy.__LEAK_` 读到的是同一个值）；
+3. **撤销**：把 `sandbox: false` 注释回去，恢复默认沙箱。
+
+> 对 `app-vue` 而言，开/关沙箱的**可见现象**几乎一样（它的业务代码本来就没进沙箱），不要拿它当"沙箱失效"的证据。但机制上有个细节值得知道：关沙箱后 `window.proxy` 会被赋成**真 window**，于是 `vite-plugin-qiankun` 那些 `window.proxy.vitebootstrap = ...` 就全写到了真 window 上（沙箱开着时它们写在沙箱里）。这也顺便解释了为什么关沙箱后 app-vue 还能起来 —— 插件只要求"`window.proxy` 这东西存在"，是真是假它并不关心。
+
+**实验 3：`__POWERED_BY_QIANKUN__` 到底写在哪**
+
+这个标记由 qiankun 内置的 `engineFlag` 钩子写入：`beforeLoad` / `beforeMount` 时 `global.__POWERED_BY_QIANKUN__ = true`，`beforeUnmount` 时 `delete`。关键在 `global` —— **沙箱开启时它是沙箱 proxy，关闭时才是真 window**。所以它和实验 1 是同一套结论：
+
+| 读数位置 | 默认沙箱 | `sandbox: false` |
+| --- | --- | --- |
+| 主应用 Console：`window.__POWERED_BY_QIANKUN__` | `undefined` | `true`（挂载期间；切走被 `delete` 后回到 `undefined`） |
+| 主应用 Console：`window.proxy.__POWERED_BY_QIANKUN__` | `true` | `true` |
+| 子应用内 `console.log(window.__POWERED_BY_QIANKUN__)` | `true` | `true` |
+
+- ⚠️ `window.proxy` **不是 qiankun 承诺的 API**，只是 `import-html-entry` 的实现细节：它在「执行子应用脚本」的那一刻做 `globalWindow.proxy = proxy`（`node_modules/import-html-entry/lib/index.js` 的 `getExecutableScript`），用来把 `with(window){...}.bind(window.proxy)` 绑到沙箱 proxy 上。因此：
+  - 必须**先切到过子应用**它才有值；刷新页面后要重新切一次才再出现；
+  - 它指向**最近一次执行过脚本**的那个子应用的沙箱，多应用来回切会变；
+  - 报 `Cannot read properties of undefined (reading '__POWERED_BY_QIANKUN__')` 就说明当前这次页面会话里**还没有任何子应用脚本被执行过**（`typeof window.proxy` 是 `'undefined'`）；顺带一提 `sandbox: false` 时它反而会被赋成真 window，所以更不可能是 undefined；
+  - 子应用**卸载后** proxy 对象本身还在，但里面的 `__POWERED_BY_QIANKUN__` 已在 `beforeUnmount` 被 `delete`，那时读到的是 `undefined` 而不是 `true`（这是"偷看"法的固有局限，不是沙箱坏了）。
+- 最稳的观察方式永远是**在子应用代码里 `console.log`**，别把 `window.proxy` 当正式手段。
+- 子应用入口那句 `if (!window.__POWERED_BY_QIANKUN__) render()` 就是靠它判断：**没被 qiankun 托管 = 独立运行，自己挂载；被托管 = 不自挂载，等基座调 `mount`**。
+- `app-vue` 在主应用 Console 里读**同样是 `undefined`**：它的标记也是 qiankun 的 `engineFlag` 写在 proxy 上的，与 `vite-plugin-qiankun` 无关（插件只负责用动态 `import()` 把 ESM 入口接进来、并桥接生命周期，不写这个标记）。
 
 ### 4.2 CSS 隔离实验
 
-**实验 1：制造污染**
+**实验 1：制造污染（非 scoped）**
 
-给 `app-vue/src/views/HomeView.vue` 追加一个**非 scoped** 的 `<style>` 块：
+1. 打开 `app-vue/src/views/HomeView.vue`，**去掉 `scoped`**，选择器用**两个应用里都存在的标签**：
 
-```vue
-<style>
-/* 故意写全局样式：污染基座/其他子应用 */
-body { background: #ffe6e6; }
-</style>
-```
+   ```vue
+   <style>
+   /* div 在 Vue、React 两边都有，才看得出"外泄"；
+      用 outline 而不是 padding/margin，避免把别家的布局也搞乱 */
+   div {
+     background: #ffe6e6;
+     outline: 1px solid #e11d48;
+   }
+   </style>
+   ```
 
-切到「Vue 子应用」再切到「React 子应用」→ 会发现 React 页面背景也是淡红色（样式串了）。
+2. 切到「Vue 子应用」→ 它是粉底红边；再切到「React 子应用」→ **React 的根 `div` 也是粉底红边**（用 Elements 面板看，连主应用里的 `div` 也一起被命中）。
 
-**实验 2：开启样式隔离**
+   → 结论：**CSS 没有沙箱兜底，任何非 scoped 的选择器都会跨应用生效**；而且 Vite dev 是运行时把 `.vue` 样式注入到真实 `document.head` 的，子应用卸载后 qiankun 也收不回它们（残留会继续串）。
 
-修改 `main-app/src/micro/index.ts` 的 `start`：
+**实验 2：正确解法——加 `scoped`，把选择器限制在组件模板内**
+
+1. 只加一个 `scoped`：
+
+   ```vue
+   <style scoped>
+   div {
+     background: #ffe6e6;
+     outline: 1px solid #e11d48;
+   }
+   </style>
+   ```
+
+2. 切到「Vue 子应用」→ 只有 HomeView 自己那个 `div` 是粉底红边（Elements 里能看到它带着 `data-v-*` 属性，和 CSS 里的选择器对上）；再切「React 子应用」→ 干净。
+
+   → 结论：**样式隔离的第一责任人是子应用自己**：Vue 用 `scoped`（或 CSS Modules），React 用 CSS Module / CSS-in-JS，不写裸的全局选择器；且选择器必须落在**组件模板内的节点**上。这正是 4.4 要沉淀的规范。
+
+> 为什么用 `div` 做对照：`.home` 只有 Vue 有、React 里根本不存在，`body` 又不在组件模板内 —— 拿它俩做对照都"看不出外泄"，只有两边都存在的选择器（`div` / `h1` / `p`）才能直观看到串色。
+> 但生产中别用这么宽的标签选择器：`scoped` 下它会把本组件里**所有** `div` 都染上。落到具体 class 上作用域更小、可读性也更好（比如给根节点 `class="home"` 再用 `.home`）。
+
+> ⚠️ **顺带记一个坑：如果把 `body`（或任何不在组件模板里的选择器）放进 `scoped` 块，会看到"Vue 自己也不显示样式了"** —— 这不是隔离成功，而是规则变成了死代码：
+> - `scoped` 的原理是给选择器加属性选择器：`body {…}` → `body[data-v-3f2a1b]{…}`；
+> - 而 `<body>` 在 HomeView 的模板之外，**永远不会带 `data-v-*` 属性**，所以这条规则哪都不生效；
+> - 也就是说 `scoped` 限制的是"作用在哪些元素上"，**不是"把全局选择器自动变成局部"**。想生效就必须把选择器写在组件自己的节点上（如实验 2 的 `div`）。
+
+> 另外要意识到：`app-vue` 里那份 `src/style.css`（`main.ts` 里 `import './style.css'`）本身也是**非 scoped 的全局样式**（`body`、`#app`、`h1`、`:root` 全在里面），它同样会外泄到主应用/其他子应用 —— 它是子应用自带的"全局基线"残留。理想做法是把这类样式收敛到组件根容器上，真正全局的主题（CSS 变量、body 底色）由基座统一下发（Phase 5）。
+
+**实验 3（可选兜底）：`experimentalStyleIsolation`**
+
+在 `main-app/src/micro/index.ts` 打开（可保留作兜底）：
 
 ```ts
-start({
-  prefetch: 'all',
-  sandbox: { experimentalStyleIsolation: true },
-})
+start({ prefetch: 'all', sandbox: { experimentalStyleIsolation: true } })
 ```
 
-保存后刷新 8080，切到 React 子应用 → 背景恢复正常；用 Elements 面板选中 app-vue 页面元素，能看到样式选择器被包上了 `div[data-qiankun="app-vue"]` 前缀。
+它做的事很具体，看源码（`qiankun/es/loader.js` + `es/sandbox/patchers/css.js`）只有两条：
 
-> 前提：子应用挂载容器内**有且仅有一个根节点**，前缀才加得上去（我们的 App.vue 是单根 `<router-view>`，天然满足）。
+1. 子应用被挂载时，qiankun 会先把它的 HTML 套进一个**自己创建的 wrapper**：
+   `<div id="__qiankun_microapp_wrapper_for_app_vue__" data-name="app-vue" data-version=… data-sandbox-cfg=…>`，
+   这个 wrapper 就是 `#micro-container-vue` 里唯一那个子节点。开启该配置后，qiankun 给**这个 wrapper** 加上属性 `data-qiankun="app-vue"`；
+2. 把 wrapper 内的 `<style>` 逐条改写，选择器统一加前缀 `div[data-qiankun="app-vue"]`：
+   - `h1 {…}` → `div[data-qiankun="app-vue"] h1 {…}`
+   - `body {…}` → `div[data-qiankun="app-vue"] {…}`（`html` / `body` / `:root` 会被直接替换成前缀）
 
-**实验 3（仅了解）**：`strictStyleIsolation`（shadow DOM）副作用大，阅读设计文档 3.6 即可，不必真开。
+   在 Elements 面板里搜 `data-qiankun` 就能看到这个 wrapper 和改写后的 `<style>`。
 
-**实验完撤销实验 1 的全局样式，并保留 `experimentalStyleIsolation: true` 作为工程默认。**
+> ✅ **它能拦住的**：写在子应用 HTML `<style>` 里的样式，以及挂载后由 qiankun 补丁**插入到容器内**的 `<style>`。
+> ❌ **它拦不住的**（所以别指望它解决实验 1 的污染）：
+> - Vite dev 运行时注入到 `document.head` 的 `.vue` 样式 —— 在 wrapper 之外，qiankun 扫不到；
+> - 外链 `<link>` —— 源码里直接 `console.warn('...is not support for link element yet.')`；
+> - 已经注入 head 的历史残留 —— 子应用卸载也不会被收回。
+> 一句话：它是"兜底"，真正的解法是实验 2 —— 子应用自己把样式写对。
+>
+> 补充：前缀是加在 qiankun 自建 wrapper 上的，**不存在"容器内必须只有一个根节点"的限制**（wrapper 本来就是唯一的那个子节点）。
 
-### 4.3 副作用清理实验
+**实验 4（仅了解，不做）**：`strictStyleIsolation`（shadow DOM）隔离最彻底但副作用大，读设计文档 3.6 即可。
 
-1. 在 app-vue `mount` 生命周期里加一行 `window.setInterval(() => {}, 1000)`，切走再切回，多次后在 Performance 面板 Memory 录制看内存只涨不降；
-2. 改成把 interval id 存到模块级变量，`unmount` 里 `clearInterval`，再录一次对比；
-3. 结论沉淀：**mount 里开的东西，unmount 里必须清**（含 `onGlobalStateChange` 订阅，Phase 5 会再遇到）。
+**收尾：把实验 1 的非 scoped 写法改成实验 2 的 `scoped` 写法（保留 `div` 做对照，记得别把 `body` 之类模板外的选择器塞进 `scoped`）；`experimentalStyleIsolation` 可留作兜底。**
+
+### 4.3 副作用清理实验（看内存）
+
+> 目标：让"泄漏"**看得见**。只挂一个空的 `setInterval(() => {}, 1000)` 是测不出来的 —— 一个定时器才几十字节，Performance 面板的曲线不会有肉眼可见的变化。所以下面这版让它每次 `mount` 都分配一块**大对象**并持续增长。
+
+> **为什么必须拿 `app-vue` 做这个实验？** 因为**沙箱会替子应用收尾**：qiankun 在挂载时会补丁 `setInterval` / `addEventListener`（`qiankun/es/sandbox/patchers/interval.js`、`windowListener.js`），并在卸载时自动 `clear` 掉沙箱内创建的所有定时器和监听：
+> ```26:32:main-app/node_modules/qiankun/es/sandbox/patchers/interval.js
+>   return function free() {
+>     intervals.forEach(function (id) {
+>       return global.clearInterval(id);
+>     });
+> ```
+> 而 `app-vue` 是 Vite-ESM、业务代码跑在**真实 window** 上（4.1 的结论），原生 `setInterval` 没人帮你清 —— 泄漏才是真实的。
+> 所以：① 拿 `app-react`（UMD，走沙箱）做同样的实验，qiankun 会在 unmount 时帮你把定时器清掉，你会看到"很健康"的假象；② 这也说明**上沙箱有个隐藏收益**：它不只隔离变量，还兜了定时器/事件监听的清理 —— 只是 ESM 形态的子应用享受不到。
+
+**实验 1：制造泄漏（app-vue）**
+
+1. 打开 `app-vue/src/main.ts`，模块顶层加两行状态：
+
+   ```ts
+   let leakTimer: number | null = null
+   const leakStore: number[][] = []
+   ```
+
+   再在 `mount(props)` 里（`console.log('[app-vue] mount')` 之后）加：
+
+   ```ts
+   // 故意不清理：每次 mount 都新开一个定时器，并持续往同一个数组里塞数据
+   leakTimer = window.setInterval(() => {
+     leakStore.push(new Array(20000).fill(Math.random())) // 每次约 160KB
+   }, 200)
+   ```
+
+2. **录一段**：
+   - F12 → 切到 **Performance** 面板；
+   - 在面板**顶部工具栏**那一排复选框里勾上 `Memory`（和 `Screenshots` / `Web Vitals` 同排）—— **必须在点录制之前勾**，录完再勾是没用的（若你的 Chrome 版本里已经没有这个复选框，说明默认就会采集内存，直接下一步）；
+   - 点 ⏺ 开始录制 → 在主应用里反复「切到 Vue 子应用 → 停留两三秒 → 切回首页」约 5 次 → 点 ⏹ 停止。
+3. **读曲线**（DevTools 版本不同，位置略有差异，**认"芯片"最快**）：
+   - 录制结果里有一块 **Memory 图表**：老版在**左侧轨道名列**里叫 `Memory`（`Screenshots` 与 `Main` 之间）；新版（侧栏有 `Insights` / `Annotations` 的那些）在**轨道列表的最下方**（`GPU` 下面），图表顶部是一排彩色芯片：`JS heap(最小 – 最大)`、`Documents`、`Nodes`、`Listeners`、`GPU memory`；
+   - **芯片括号里的两个数就是这段录制里该指标的最小值与最大值**，一眼能看出涨了多少（如 `JS heap(45.4 MB – 71.8 MB)` = 这段涨了约 26MB）；
+   - 想知道哪条颜色线对应哪个指标：**把鼠标停在线上**看悬浮提示；也可以点芯片只显示/隐藏那一条；
+   - 图表默认很矮：按 `W` 放大时间轴（`S` 缩小、`A`/`D` 平移），或拖动分隔线把它拉高；
+   - ⚠️ **GC 必须在"录制过程中"按**：Performance 面板里的录制结果是历史数据，**录完再点 🗑️（Collect garbage）不会把曲线重画**。所以正确录法是：切子应用两三次 → 点 🗑️（曲线会当场掉一截）→ 再切两三次 → ⏹ 停止；然后看"每次 GC 之后的谷底有没有逐级抬高"。
+     （想"先录完、再补一次 GC"的话用 **Memory 面板**的 `Allocation instrumentation on timeline`：它的 🗑️ 是停止后按的，画面会实时更新。）
+
+   **曲线形态对照（照着判结论）：**
+
+   | 你看到的形态 | 结论 |
+   | --- | --- |
+   | 阶梯**只升不降**，每次 GC 后的**谷底逐级抬高** | ✅ 泄漏（本例就是它） |
+   | 开头高、一两次**竖直下跌**后长时间走平（只有小幅起伏） | 正常 —— 加载期分配一堆内存，GC 回收后进入稳态 |
+   | `JS heap` 能回落，但 `Nodes` / `Listeners` **只增不减** | 也是泄漏（DOM 节点或事件监听没释放，堆反而看不出来） |
+
+   > 所以判泄漏别只看 `JS heap` 一条：把 `Nodes`、`Listeners` 也勾上一起看（芯片前面的小方框就是开关）。很多微前端泄漏的典型表现是 **heap 能回落、但 Nodes/Listeners 一路涨**。
+
+> 如果觉得"录一段再找轨道"太绕，这两个替代工具更直观（结论一样）：
+> - **Performance monitor**（DevTools 的 `⋮` → More tools → Performance monitor）：勾上 `JS heap size`，它是**实时折线**，你一边切子应用一边看它涨，最省事；
+> - **Memory 面板** → `Allocation instrumentation on timeline`：开始记录 → 切几次子应用 → 停止 → 点 🗑️，没被回收的蓝条就是泄漏，还能点开看是哪个函数分配的。
+
+**实验 2：修复对比**
+
+1. 在 `unmount()` 里清理：
+
+   ```ts
+   if (leakTimer !== null) {
+     clearInterval(leakTimer)
+     leakTimer = null
+   }
+   ```
+
+   （想更彻底就连数据引用一起断：`leakStore.length = 0`）
+2. 重复上面的录制 → 切走几次并 GC 后，堆能回到接近起点。
+
+→ 结论：**`mount` 里开的东西，`unmount` 里必须清**（定时器、事件监听、`onGlobalStateChange` 订阅 —— Phase 5 会再遇到）。
+
+> 顺带体会两件事：① 这个泄漏不只是"占内存"，还在持续烧 CPU；② 它污染的是**真实 window** —— app-vue 的代码本来就跑在沙箱之外（4.1 的结论），所以别指望沙箱帮你把定时器收走。
 
 ### 4.4 沉淀样式规范（写进 docs/规范.md）
 
@@ -940,15 +1166,20 @@ start({
 # 前端规范（本项目沉淀）
 
 ## 样式规范
-1. 子应用一律使用局部样式：Vue 用 scoped，React 用 CSS Module；禁止裸写全局样式；
-2. 确需全局的主题样式（如 CSS 变量）在基座统一定义下发（见 Phase 5）；
-3. 基座已开启 experimentalStyleIsolation，注意子应用根节点唯一。
+1. 子应用一律使用局部样式：Vue 用 scoped，React 用 CSS Module / CSS-in-JS；禁止裸写全局选择器；
+2. `scoped` 只对**组件模板内的元素**生效：选择器要落在自己组件的节点上（优先用根节点 class）；
+   不要在 scoped 里写 `body` / `html` / `:root` —— 编译后会变成 `body[data-v-*]`，永远匹配不到，是死代码；
+3. 子应用自带的"全局基线"（如 app-vue 的 `src/style.css` 里 `:root` / `body` / `h1`）同样是污染源，
+   应尽量收敛到组件根容器；真正需要全局的主题（CSS 变量、body 底色）由基座统一下发（见 Phase 5）；
+4. 基座可选开启 `experimentalStyleIsolation` 作兜底：它只改写**挂载时容器内已存在的 `<style>`**
+   （以及之后经 qiankun 补丁插入到容器内的），`<link>` 不支持、Vite 运行时注入到 `document.head` 的样式感知不到
+   —— 所以它是兜底，不能替代第 1、2 条。
 ```
 
 ### ✅ Phase 4 验收
 
-- [ ] 能讲清"Proxy 沙箱下写隔离、读共享"并演示开关沙箱的差异；
-- [ ] 能演示样式污染与 `experimentalStyleIsolation` 修复；
+- [ ] 能讲清"Proxy 沙箱下写隔离、读共享"，并演示开关沙箱的差异；
+- [ ] 能演示样式污染，并用 `scoped` / CSS Module 修复；能说出 `experimentalStyleIsolation` 的适用范围（只兜底静态 `<style>`）；
 - [ ] `docs/规范.md` 已建；
 - [ ] git 提交：`git add -A && git commit -m "feat: phase 4 - 沙箱与样式隔离实验并沉淀规范"`
 
@@ -956,6 +1187,8 @@ start({
 
 ## Phase 5 · 应用间通信（登录用户 + 主题联动）
 
+> **状态：⬜ 未开始**（无 `main-app/src/micro/actions.ts`，全局状态未接）。
+>
 > 场景：主应用顶栏输入用户名登录；app-vue 页头显示该用户名并提供「退出」；app-react 显示同一用户名；主题色三端联动（用 CSS 变量体现"样式隔离下共享"）。
 > 数据流约定（设计文档 5.6）：**主应用是唯一写入方**（`setGlobalState`），子应用只 `onGlobalStateChange` 订阅 + 通过 `setGlobalState` 触发"登出"这种反向请求。
 
@@ -1071,7 +1304,6 @@ function switchTheme(t: 'default' | 'blue') {
 **step 1**：新建 `app-vue/src/micro-global.ts`（保存 qiankun 注入的 props，供组件用）：
 
 ```ts
-import type { MicroAppStateActions } from 'qiankun'
 import { reactive } from 'vue'
 
 // 由 qiankun 注入的全局状态（订阅回调里更新）
@@ -1081,12 +1313,17 @@ export const globalState = reactive({
 })
 
 // mount(props) 里由 main.ts 赋值
-export const actions: { setGlobalState?: MicroAppStateActions['setGlobalState'] } = {}
+export const actions: { setGlobalState?: (state: Record<string, unknown>) => void } = {}
 ```
 
-> app-vue 没装 `qiankun` 包时，`import type ... from 'qiankun'` 会编译报错。**不装主依赖的话**，把这行类型换成：`export const actions: { setGlobalState?: (state: Record<string, unknown>) => void } = {}` 即可。
+> ⚠️ 这里**故意不写** `import type { MicroAppStateActions } from 'qiankun'` —— `app-vue/package.json` 里**没有 `qiankun` 依赖**（子应用不该依赖基座框架），那样写会直接 `TS2307: Cannot find module 'qiankun'`。
+> 想让类型更精确，二选一：
+> 1. 用上面这种**手写函数类型**（零依赖，推荐）；
+> 2. 给 app-vue 装纯类型依赖 `npm i -D qiankun`，然后才可以用 `import type { MicroAppStateActions } from 'qiankun'`（该类型确实由 qiankun 的 `interfaces` 导出）。
 
-**step 2**：`app-vue/src/main.ts` 里，在 `renderWithQiankun.mount` 中注册订阅（只注册一次，unmount 时取消）：
+**step 2**：`app-vue/src/main.ts` 里，在 `renderWithQiankun.mount` 中注册订阅、在 `unmount` 中注销。
+
+> 注意配对关系是"**每次 mount 注册一次 ↔ 对应那次 unmount 取消**"，不是"全局只注册一次"。否则第一次切走就把订阅注销了、第二次切回来就收不到状态更新（这是本 Phase 最常见的坑）。
 
 ```ts
 import { createApp, type App as VueApp } from 'vue'
@@ -1103,7 +1340,7 @@ function render(props: { container?: HTMLElement | null } & Record<string, unkno
   const { container } = props
   const mountEl = (container?.querySelector('#app') as HTMLElement | null) ?? '#app'
 
-  // 保存 setGlobalState，供"退出"这类反向操作使用（第一次进来注册即可）
+  // 保存 setGlobalState，供"退出"这类反向操作使用（每次挂载都由基座重新注入）
   const injected = props as { setGlobalState?: typeof actions.setGlobalState }
   actions.setGlobalState = injected.setGlobalState
 
@@ -1130,6 +1367,7 @@ renderWithQiankun({
     if (!offGlobalListener) registerGlobalListener(p)
     render(p)
   },
+  update() {}, // 四个生命周期必须齐全，否则 vue-tsc 报 TS2345（见 0.5 勘误）
   unmount() {
     offGlobalListener?.()
     offGlobalListener = null
@@ -1147,20 +1385,19 @@ if (!qiankunWindow.__POWERED_BY_QIANKUN__) {
 
 ```vue
 <script setup lang="ts">
-import { globalState, actions } from './micro-global'
 import { computed } from 'vue'
+import { globalState, actions } from './micro-global'
 
 const userName = computed(() => globalState.user)
-const theme = computed(() => globalState.theme)
 
 function logout() {
-  // 反向操作：主应用是唯一写入方，这里只是"申请变更"——仍走 setGlobalState
+  // 反向操作：主应用是唯一写入方，这里只是"申请变更"，仍然走 setGlobalState
   actions.setGlobalState?.({ user: '' })
 }
 </script>
 
 <template>
-  <div class="app-vue" :style="{ '--brand-color': theme === 'blue' ? '#3b82f6' : '#42b883' }">
+  <div class="app-vue">
     <header class="vue-header">
       <span v-if="userName">app-vue 页头：你好，{{ userName }}</span>
       <span v-else>app-vue（未登录）</span>
@@ -1172,9 +1409,14 @@ function logout() {
 
 <style scoped>
 .app-vue { font-family: inherit; }
+/* 主题色不由子应用自己算：--brand-color 是基座下发、沿 DOM 继承进来的（见下方说明） */
 .vue-header { display: flex; gap: 8px; align-items: center; padding: 8px; background: color-mix(in srgb, var(--brand-color) 15%, white); }
 </style>
 ```
+
+> **主题色为什么不走 `globalState`？** 因为 **CSS 自定义属性会沿 DOM 树继承**：子应用挂载在主应用的 `#micro-container-vue` 里，而这个容器在主应用 `.layout[data-theme]` 内部 —— 基座定义的 `--brand-color`（见 5.2）对子应用元素天然可见。于是切 `data-theme` 时子应用自动变色，一行 JS 都不用写；4.2 学的那套"样式隔离"也**并不妨碍继承**（隔离的是选择器作用范围，不是继承链）。
+> 前提：子应用自己别在根节点上重定义 `--brand-color`，否则就断开继承了。
+> 需要"主题值本身"参与逻辑（比如换图标、换文案）时，再读 `globalState.theme`（5.1 已定义）。
 
 ### 5.4 子应用 app-react：同样的订阅逻辑
 
@@ -1268,13 +1510,18 @@ export default function App() {
 }
 ```
 
+> ⚠️ **上面这个写法有循环依赖**：`index.js` 头部 `import App from './App'`，而 `App.jsx` 又 `import { globalStore } from './index'`。ESM 下它能跑（因为 `globalStore` 是在组件**渲染时**才被读取的），但很脆：只要你在某个模块顶层用到 `globalStore`，就会读到 `undefined`（那一刻 `index.js` 还没执行到定义处）。
+> 更稳的写法是把 store 抽成独立文件：
+> 1. 新建 `app-react/src/global-store.js`，内容就是上面那个 `globalStore` 对象；
+> 2. `index.js` 与 `App.jsx` 都改成 `import { globalStore } from './global-store'`。
+>
 > 「退出」按钮如需放 React 侧，同样调用 `props.setGlobalState({ user: '' })`（在 `mount` 里把它存到 `globalStore`），参照 app-vue 的做法即可。
 
 ### 5.5 验证顺序
 
 1. 8080 顶栏输入用户名登录 → 切到「Vue 子应用」「React 子应用」，两端页头都显示该用户名（证明跨技术栈共享）；
 2. 在 app-vue 点「退出」→ 主应用顶栏与 React 端同步清空；
-3. 点「切换主题」→ 主应用 `data-theme` 变化，app-vue 页头底色随之变化，且 **React 端不被串样式**；
+3. 点「切换主题」→ 主应用 `data-theme` 变化，app-vue 页头底色随之变化（靠 CSS 变量**继承**，子应用不需要订阅），且 **React 端不被串样式**；
 4. 反复切走/切回子应用几次，Console 无"重复订阅"现象。
 
 ### ✅ Phase 5 验收
@@ -1289,6 +1536,8 @@ export default function App() {
 
 ## Phase 6 · 工程化演进（demo → 模板）
 
+> **状态：⬜ 未开始**（无 `main-app/.env`、无 loading/容错、无根 README）。
+>
 > 目标：把"能跑的 demo"升级成"敢交付的架子"：地址可配置、加载有反馈、挂了有提示。
 > 本 Phase 以 main-app 改动为主。
 
@@ -1308,10 +1557,16 @@ VITE_MICRO_VUE_ENTRY=http://localhost:8081
 VITE_MICRO_REACT_ENTRY=http://localhost:8082
 ```
 
-> Vite 里 `import.meta.env.VITE_*` 是字符串类型，但需要类型声明才不报 TS 错。若 `src/` 下没有 `vite-env.d.ts`，新建一个：
+> **关于类型**：`main-app/tsconfig.app.json` 里已经写了 `"types": ["vite/client"]`，所以**不需要**再新建 `src/vite-env.d.ts`（这是常见误解）。
+> 但 `import.meta.env.VITE_*` 默认只被推断成 `any`/`string | undefined`，想让自定义变量有准确类型，扩展 `ImportMetaEnv` 接口即可（新建 `main-app/src/env.d.ts`）：
 
 ```ts
 /// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_MICRO_VUE_ENTRY?: string
+  readonly VITE_MICRO_REACT_ENTRY?: string
+}
 ```
 
 **step 2**：改 `main-app/src/micro/apps.ts` 读环境变量：
@@ -1343,10 +1598,11 @@ import { getMicroApps } from './apps'
 
 export function microInit() {
   registerMicroApps(getMicroApps(), {
-    beforeLoad: [(app) => console.log('[qiankun] beforeLoad:', app.name)],
-    beforeMount: [(app) => console.log('[qiankun] beforeMount:', app.name)],
-    afterMount: [(app) => console.log('[qiankun] afterMount:', app.name)],
-    afterUnmount: [(app) => console.log('[qiankun] afterUnmount:', app.name)],
+    // 钩子类型是 (app, global) => Promise<any>，必须返回 Promise，所以都要 async
+    beforeLoad: [async (app) => console.log('[qiankun] beforeLoad:', app.name)],
+    beforeMount: [async (app) => console.log('[qiankun] beforeMount:', app.name)],
+    afterMount: [async (app) => console.log('[qiankun] afterMount:', app.name)],
+    afterUnmount: [async (app) => console.log('[qiankun] afterUnmount:', app.name)],
   })
 
   start({
@@ -1366,21 +1622,65 @@ export function microInit() {
 
 设计文档 5.5 曾规划 `MICRO_MODE` 环境变量切换，结论：**本期统一用运行时判断 `__POWERED_BY_QIANKUN__`**（已在 Phase 1/2 实现），不需要 `.env.micro`。把结论写进根 README，避免后人纠结。
 
-### 6.3 加载体验：loading 骨架（可选项，做就做小的）
+### 6.3 加载体验：loading 骨架
 
-在 `main-app/src/views/MicroSlot.vue` 中放一个骨架，子应用未挂载完时给用户反馈：
+先说清一个**常见错误做法**：在 `MicroSlot.vue` 里 `onMounted(() => setTimeout(() => (loading.value = false), 0))` —— 这跟 qiankun 的加载进度毫无关系，它只是"把状态延后一拍关掉"，既不准确也没意义。
+
+正确做法是让 qiankun 的 `loader` 驱动状态。**注意 `loader` 不是 `start()` 的参数，而是"每个子应用自己的配置"**：
+
+```12:76:main-app/node_modules/qiankun/es/apis.js
+    var name = app.name,
+      activeRule = app.activeRule,
+      _app$loader = app.loader,
+      loader = _app$loader === void 0 ? _noop : _app$loader,
+```
+
+它被调用的时机也很明确（同文件）：开始加载子应用时 `loader(true)`、**每次**挂载前 `loader(true)`、挂载钩子跑完 `loader(false)`。
+
+分三步接上：
+
+**step 1**：新建 `main-app/src/micro/loading.ts`（一个极简共享状态，谁都能读写）：
+
+```ts
+import { ref } from 'vue'
+
+// 正在加载的子应用名（null = 当前没有应用在加载）
+export const loadingApp = ref<string | null>(null)
+```
+
+**step 2**：在 `main-app/src/micro/apps.ts` 里给每个应用配上 `loader`（`getMicroApps()` 内部）：
+
+```ts
+import { loadingApp } from './loading'
+
+// 接口记得补上这一项
+// loader?: (loading: boolean) => void
+
+export function getMicroApps(): MicroAppItem[] {
+  // ...vueEntry / reactEntry 的取值同 6.1 step 2
+  return [
+    {
+      name: 'app-vue', entry: vueEntry, container: '#micro-container-vue', activeRule: '/vue',
+      loader: (loading) => { loadingApp.value = loading ? 'app-vue' : null },
+    },
+    {
+      name: 'app-react', entry: reactEntry, container: '#micro-container-react', activeRule: '/react',
+      loader: (loading) => { loadingApp.value = loading ? 'app-react' : null },
+    },
+  ]
+}
+```
+
+**step 3**：`main-app/src/views/MicroSlot.vue` 显示骨架：
 
 ```vue
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-// 容器内容由 qiankun 填充；qiankun 的 loader 回调可驱动此状态（此处简化）
-const loading = ref(true)
-onMounted(() => setTimeout(() => (loading.value = false), 0))
+import { loadingApp } from '../micro/loading'
 </script>
 
 <template>
   <div class="micro-slot">
-    <p v-if="loading" class="loading">子应用加载中…</p>
+    <p v-if="loadingApp" class="loading">{{ loadingApp }} 加载中…</p>
   </div>
 </template>
 
@@ -1389,7 +1689,9 @@ onMounted(() => setTimeout(() => (loading.value = false), 0))
 </style>
 ```
 
-> 更精确的做法：把 `start({ loader })` 的回调接到一个共享 ref 上控制骨架显隐。qiankun 的 loader 会高频调用（loading 状态反复翻转），示例从简即可。
+> 两个注意点：
+> 1. `loader` 会被**多次调用**（一次进入子应用可能连来几个 true/false），回调里只做改 `ref` 这种轻量操作；
+> 2. 因为 `prefetch: 'all'` 会提前把子应用的 HTML/JS 拉好，**首次进入时骨架可能一闪而过甚至看不到** —— 想验证效果，先把 `prefetch` 去掉对比一次。
 
 ### 6.4 每应用 README 与规范补全
 
@@ -1421,6 +1723,8 @@ onMounted(() => setTimeout(() => (loading.value = false), 0))
 
 ## Phase 7 · 本地 Nginx 部署
 
+> **状态：⬜ 未开始**（无 `deploy/`，各应用 README 未写）。
+>
 > 目标：把三端 `build` 产物交给 nginx 提供，验证**真实服务器**下的 history 刷新、跨域、资源路径。dev server 全停也不影响（除了验证期你想同时对比）。
 
 ### 7.1 准备 nginx（Windows）
@@ -1477,6 +1781,8 @@ output: {
 ```
 
 > ⚠️ app-vue 是"站点根部署"（独占 8081 端口），Vite `base` 保持默认 `/` 即可，产物里资源引用是 `/assets/xxx`，nginx 站根能直接命中。不要为了子路由去改 base。
+>
+> 关于 `qiankun('app-vue', { useDevMode: true })`：**构建时它不生效，也不用改成 false**。插件源码里这个选项只用于 dev 分支（`if (microOption.useDevMode && !isProduction)`，见 `vite-plugin-qiankun/es/index.js` 的 `module2DynamicImport`）：dev 下要给动态 import 拼上 `__INJECTED_PUBLIC_PATH_BY_QIANKUN__` 前缀才能找到模块，build 产物则直接用 `/assets/xxx` 的根路径。插件**始终**会把 `<script type="module">` 改写成 inline 的 `import('...')`，所以配置里一直写 `useDevMode: true` 是安全的。
 
 三个应用分别执行 `npm run build`，确认 `deploy/html/` 下出现三个子目录。
 
@@ -1589,10 +1895,12 @@ http {
 | React 页面白屏无报错 | `#root` 选择器取空 / container id 不一致 | 2.4 |
 | 子应用内部路由 F5 404 | 缺 router base/basename（dev）；缺 try_files（部署） | 3.1 / 7.3 |
 | 从 React 列表/详情切走报 `SecurityError ... 'http://localhost:8080undefined/'` | React Router 覆盖 history.state，vue-router 拼 URL 出错 | 2.1（MicroHistoryGuard） |
-| 子应用样式污染基座 | 未开 `experimentalStyleIsolation` | 4.2 |
-| 全局变量泄漏到主应用 | 误设 `sandbox:false` | 4.1 |
-| globalState 不更新 | mount 里没传 fireImmediately=true；或重复订阅未注销 | 5.3 / 5.4 |
-| `import.meta.env` TS 报错 | 缺 `src/vite-env.d.ts` | 6.1 |
+| 子应用样式污染基座 | 子应用写了**非 scoped 的全局选择器**（根因）；`experimentalStyleIsolation` 只兜底静态 `<style>`，救不了 Vite 运行时注入的样式 | 4.2 |
+| 全局变量泄漏到主应用 | 两种情况：① 误设 `sandbox:false`；② `app-vue` 是 Vite-ESM，业务代码本来就跑在真 window 上（不是 bug） | 4.1 |
+| globalState 不更新 | 没在 `mount` 里注册订阅；或注册了、`unmount` 注销后切回来没重新注册；或重复订阅。`fireImmediately=true` 只决定"注册时是否立刻回调一次当前值" | 5.3 / 5.4 |
+| 子应用加载骨架不消失 | `loader` 写成了 `start({ loader })` —— 它是**每个子应用**的配置项，不是 `start` 的参数 | 6.3 |
+| `npm run build`（`vue-tsc -b`）报 TS 错误 | 四类常见：`'X' is declared but its value is never read`（未使用变量）、`TS2345`（少给 `update` 生命周期）、`TS2322`（钩子写成非 Promise）、`TS2349`（`vite-plugin-qiankun` 在 `nodenext` 下不可调用）—— 逐条对应见 0.5 勘误表 | 0.5 |
+| `import.meta.env.VITE_*` 类型不准 | tsconfig 已含 `"types": ["vite/client"]`（不需要 `vite-env.d.ts`）；想要准确类型得扩展 `ImportMetaEnv` | 6.1 |
 | build 产物里资源路径 404 | Vite base / webpack publicPath 与部署形态不符 | 7.5 |
 
 ## 附录 B · 各 Phase 提交建议（含分支可选）
@@ -1614,8 +1922,8 @@ http {
 
 | 项 | 值/说明 |
 | --- | --- |
-| Node | 需 ≥ 20（Vite 8 要求更高，建议 22 LTS） |
+| Node | Vite 8.2.2 的 `engines` 要求 `^20.19.0 \|\| >=22.12.0`，建议直接用 22 LTS |
 | React | app-react 实装 19.2.8（设计文档原规划 18，API 兼容，无碍） |
-| vite-plugin-qiankun | 实施 2.1 节已锁定版本；API 若与手册不一致，以包内 README 为准（`renderWithQiankun`/`qiankunWindow` 均在 `dist/helper`） |
+| vite-plugin-qiankun | 已锁定 `1.0.15`（1.1 节）；`renderWithQiankun` / `qiankunWindow` 在 `dist/helper` 与 `es/helper`，两者都带 `.d.ts`。该包本质是"HTML 改写器"：把 `<script type="module">` 换成 inline `import('...')`，并靠 `window.proxy.viteXXX` 桥接生命周期 |
 | qiankun | main-app 用 npm latest（2.x） |
 | 部署形态 | 采用"跨端口站点"方案；同域子路径为选学 |

@@ -1,11 +1,13 @@
 import { createApp, type App as VueApp } from 'vue'
-import { createRouter, type Router } from 'vue-router'
 import { qiankunWindow, renderWithQiankun } from 'vite-plugin-qiankun/dist/helper'
 import App from './App.vue'
 import router from './router'
 import './style.css'
 
 let app:VueApp | null = null
+
+// let leakTimer: number | null = null
+// const leakStore: number[][] = []
 
 function render(props:{ container?: HTMLElement | null } = {}) {
     const { container } = props
@@ -17,16 +19,28 @@ function render(props:{ container?: HTMLElement | null } = {}) {
     app.mount(mountEl)
 }
 
-// 被 qiankun 托管时，插件把下面三个生命周期导出给主应用调用
+// 被 qiankun 托管时，插件把这些生命周期导出给主应用调用
+// 注意 update 不能省：插件的 QiankunLifeCycle 类型要求四个生命周期齐全（缺了 vue-tsc 会报 TS2345）
 renderWithQiankun({
   bootstrap() {
     console.log('[app-vue] bootstrap')
   },
   mount(props) {
+//     // 故意不清理：每次 mount 都新开一个定时器，并持续往同一个数组里塞数据
+// leakTimer = window.setInterval(() => {
+//   leakStore.push(new Array(20000).fill(Math.random())) // 每次约 160KB
+// }, 200)
     console.log('[app-vue] mount')
     render(props as { container?: HTMLElement | null })
   },
+  update() {
+    // 主应用调用 update(props) 时触发；本项目不做增量更新，留空即可
+  },
   unmount() {
+//     if (leakTimer !== null) {
+//   clearInterval(leakTimer)
+//   leakTimer = null
+// }
     console.log('[app-vue] unmount')
     app?.unmount()
     app = null
