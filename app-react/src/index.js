@@ -7,6 +7,21 @@ import Detail from './views/Detail';
 
 let root = null;
 let container = null;
+let offListener = null;
+
+// 跨应用共享的用户态：React 侧用模块级 store 模拟（无需额外依赖）
+export const globalStore = {
+  user: '',
+  theme: 'default',
+  listeners: new Set(),
+  emit() {
+    this.listeners.forEach((fn) => fn());
+  },
+  subscribe(fn) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  },
+};
 
 // 微前端下，主应用(8080)用 vue-router，它把 {back,current,forward,position}
 // 等字段存在浏览器 history.state 里，导航时依赖 current 拼接 URL。
@@ -53,11 +68,20 @@ export async function bootstrap() {
 
 export async function mount(props) {
     console.log('[app-react] mount');
+    // 订阅全局状态（fireImmediately 拉取当前值）
+    if (props.onGlobalStateChange && !offListener) {
+      offListener = props.onGlobalStateChange((state) => {
+        globalStore.user = state.user ?? '';
+        globalStore.theme = state.theme ?? 'default';
+        globalStore.emit();
+      }, true);
+    }
     render(props);
 }
 
 export async function unmount() {
     console.log('[app-react] unmount');
+    if (offListener) { offListener(); offListener = null; }
     if(root) {
         root.unmount();
         root = null;
